@@ -13,6 +13,16 @@ export blue="\033[1;34m"
 export magenta="\033[1;35m"
 export cyan="\033[1;36m"
 export white="\033[1;37m"
+#
+export COL_NC='\e[0m' # No Color
+export COL_LIGHT_GREEN='\e[1;32m'
+export COL_LIGHT_RED='\e[1;31m'
+export TICK="${white}[${COL_LIGHT_GREEN}✓${COL_NC}${white}]"
+export CROSS="${white}[${COL_LIGHT_RED}✗${COL_NC}${white}]"
+export INFO="[i]"
+export DONE="${COL_LIGHT_GREEN} done!${COL_NC}"
+export OVER="\\r\\033[K"
+export DOTPREFIX="  ${black}::${reset} "
 
 # Setting variables for bold and reset
 export bold="\033[1m"
@@ -27,6 +37,13 @@ declare servicesToDisable=(lxdm sddm gdm)
 msg() {
 	local msg="$1"
 	echo -e "${green}==>[${pkgname}] ${bold}${yellow}${msg}${reset}" >&2
+}
+
+die() {
+  local msg=$1
+  shift
+  printf "  %b %s\\n" "${CROSS}" "${red}${msg}${reset}"
+  exit 1
 }
 
 sh_load_optdepends() {
@@ -88,8 +105,10 @@ post_install() {
 		pacman -Sy --quiet --noconfirm &>/dev/null
 	}
 
-	install_packages() {
-		pacman -S --quiet --noconfirm --needed --overwrite \* "$@" &>/dev/null
+  install_packages() {
+    if ! pacman -S --quiet --noconfirm --needed --overwrite \* "$@" 1>/dev/null; then
+      die "Fatal: Error installing packages"
+    fi
 	}
 
 	msg "Please wait, synchronizing databases..."
