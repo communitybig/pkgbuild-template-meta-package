@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # -*- coding: utf-8 -*-
+# shellcheck source=/dev/null
 
 export TERM=${TERM:-xterm}
 export TERM=${TERM:-xterm-256color}
@@ -31,7 +32,7 @@ declare IS_UPGRADE=false
 declare DM='lightdm'
 declare WM='mate'
 declare pkgname=comm-"${WM}"
-declare servicesToEnable=(${DM} avahi-daemon sshd cups bluetooth)
+declare servicesToEnable=("${DM}" avahi-daemon sshd cups bluetooth)
 declare servicesToDisable=(lxdm sddm gdm)
 
 msg() {
@@ -39,11 +40,16 @@ msg() {
 	echo -e "${green}==>[${pkgname}] ${bold}${yellow}${msg}${reset}" >&2
 }
 
+log_ok() {  echo -e "  ${TICK} ${*}${reset}"; }
+log_err() { echo -e "  ${CROSS} ${*}${reset}"; }
+
 die() {
-  local msg=$1
-  shift
-  printf "  %b %s\\n" "${CROSS}" "${red}${msg}${reset}"
-  exit 1
+	local msg=$1
+	shift
+	#printf "  %b %s\\n" "${CROSS}" "${red}${msg}${reset}"
+	echo -e "  ${CROSS} ${red}${msg}${reset}"
+  sh_restoring_lock
+	exit 1
 }
 
 sh_load_optdepends() {
@@ -55,6 +61,23 @@ sh_load_optdepends() {
 		msg "${red}FATAL: Something went wrong! File '$info_file' not found or without read permission."
 		msg "${red}FATAL: Something went wrong! File '$info_file' not found or without read permission."
 	fi
+}
+
+sh_restoring_lock() {
+  msg "Restauring pacman lock: /var/lib/pacman/db.lck"
+  touch /var/lib/pacman/db.lck &>/dev/null
+}
+
+sh_check_package_exist() {
+	local pkg
+	for pkg in "${OPTDEPENDS[@]}"; do
+    if ! pacman -Qs "$pkg" &>/dev/null; then
+  		if ! pacman -Ss "^$pkg$" &>/dev/null; then
+	  	  die "Fatal: package '$pkg' not exist in repo"
+		  fi
+		fi
+    log_ok "Check: ${cyan}$pkg"
+  done
 }
 
 sh_start_dbus_in_chroot() {
@@ -105,10 +128,8 @@ post_install() {
 		pacman -Sy --quiet --noconfirm &>/dev/null
 	}
 
-  install_packages() {
-    if ! pacman -S --quiet --noconfirm --needed --overwrite \* "$@" 1>/dev/null; then
-      die "Fatal: Error installing packages"
-    fi
+	install_packages() {
+		pacman -S --quiet --noconfirm --needed --overwrite \* "$@" &>/dev/null
 	}
 
 	msg "Please wait, synchronizing databases..."
@@ -116,6 +137,9 @@ post_install() {
 
 	msg "Installing common packages: ${COMMON_PACKAGES[*]}"
 	install_packages "${COMMON_PACKAGES[@]}"
+
+	msg "Checking for the existence of packages..."
+	sh_check_package_exist
 
 	msg "Installing optdepends packages: ${OPTDEPENDS[*]}"
 	install_packages "${OPTDEPENDS[@]}"
@@ -201,7 +225,7 @@ EOF
 	for service in "${servicesToDisable[@]}"; do
 		if systemctl is-active --quiet "${service}"; then
 			msg "Disabling service ${service}..."
-			if ! systemctl disable ${service} &>/dev/null; then
+			if ! systemctl disable "${service}" &>/dev/null; then
 				msg "${red}Error: It went wrong when desactivating service ${service}"
 			fi
 		else
@@ -215,7 +239,7 @@ EOF
 			msg "${green}Service ${service} is already active..."
 			continue
 		else
-			if ! systemctl enable ${service} &>/dev/null; then
+			if ! systemctl enable "${service}" &>/dev/null; then
 				msg "${red}Error: It went wrong when activating service ${service}"
 			fi
 		fi
@@ -238,8 +262,8 @@ EOF
 		update-grub &>/dev/null
 	fi
 
-	msg "Restauring pacman lock: /var/lib/pacman/db.lck"
-	touch /var/lib/pacman/db.lck &>/dev/null
+  # Restauring pacman lock: /var/lib/pacman/db.lck
+  sh_restoring_lock
 
 	if ! $IS_UPGRADE; then
 		msg "Installation complete. Rebooting in 10 seconds..."
